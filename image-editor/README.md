@@ -34,12 +34,43 @@ limiar, preto e branco, sépia, inverter, detectar bordas, contraste e tom autom
 **Imagem**: tamanho da imagem (bicúbico ou pixel art), tamanho da tela com âncora,
 girar 90°/180°, espelhar, cortar para a seleção.
 
-**Arquivos**: abre PNG, JPEG, WebP, GIF, BMP e SVG (pelo menu, arrastando ou colando com Ctrl+V);
+**Arquivos**: abre PNG, JPEG, WebP, GIF, BMP, SVG e DNG do Lightroom (pelo menu, arrastando ou colando com Ctrl+V);
 exporta PNG, JPEG e WebP com qualidade, escala e tamanho estimado; salva e reabre projetos
 `.retoque.json` com todas as camadas.
 
 **Também**: histórico com até 60 passos (clique para voltar a qualquer um), histograma RGB,
 tema claro e escuro, gestos de pinça no celular e mais de 40 atalhos de teclado (`?` mostra a lista).
+
+## Edição automática em lote
+
+Aplica em dezenas de fotos de uma vez o estilo de quem edita no Lightroom
+(menu **Arquivo › Edição automática em lote** ou o botão **Edição em lote**).
+
+1. **Ensine o estilo.** Adicione fotos já editadas no Lightroom e exportadas em **DNG**.
+   Cada DNG exportado pelo Lightroom traz a foto original, a versão editada e as
+   configurações usadas. O Retoque compara original e edição e aprende o estilo: curvas de
+   tom por canal mais uma tabela 3D de cores, que capturam exposição, contraste, curvas,
+   HSL, tonalização e saturação. Nitidez e vinheta são lidas direto das configurações do
+   Lightroom. Quanto mais fotos editadas, melhor o estilo; dá para marcar só algumas
+   (por exemplo, só os ensaios externos) e salvar cada estilo em um arquivo `.json`.
+2. **Adicione as fotos** (JPEG, PNG, WebP ou DNG). Cada uma ganha uma exposição automática
+   que aproxima o brilho do resultado ao das fotos de referência. Os botões − e + corrigem
+   uma foto específica; segurar o clique sobre a foto mostra o original.
+3. **Exporte.** Sai um `.zip` com os JPEGs em tamanho original (ou reduzido), já girados
+   corretamente e com data, câmera e lente preservadas, para manter a ordem na galeria.
+
+Qualquer foto pode ser aberta no editor para retoques finais: ela entra com duas camadas,
+a editada e a original (oculta). O estilo aprendido também fica em **Filtros › Aplicar
+estilo aprendido** para uso numa foto só.
+
+Tudo roda no aparelho: nenhuma foto é enviada para servidor algum. O estilo fica guardado
+neste navegador até você clicar em *Esquecer estilo salvo*.
+
+**O que o estilo não reproduz:** retoques locais (máscaras, pincel de ajuste, remoção de
+manchas), cortes e endireitamento, redução de ruído, e o efeito exato de Claridade,
+Textura e Desembaçar. Fotos tiradas em RAW (CR3, CR2, NEF…) ainda não são lidas; o
+aprendizado precisa de DNGs cujo original veio de um JPEG da câmera, como os exportados
+pelo Lightroom Mobile a partir de fotos JPEG.
 
 ## Como usar
 
@@ -61,7 +92,7 @@ O editor fica em `https://<seu-usuário>.github.io/<repositório>/image-editor/`
 ## Desenvolvimento
 
 ```bash
-npm test             # testes das operações de imagem e do histórico (node:test, sem dependências)
+npm test             # testes de imagem, histórico, estilo, DNG/EXIF e ZIP (node:test, sem dependências)
 npm run build        # gera dist/retoque.html, um arquivo único com tudo embutido
 ```
 
@@ -79,6 +110,11 @@ image-editor/
 ├── js/ui.js             menus, painéis, diálogos e avisos
 ├── js/app.js            comandos, atalhos, arquivos e inicialização
 ├── js/sample.js         imagem de exemplo gerada por código
+├── js/style.js          aprendizado e aplicação do estilo (curvas + tabela 3D de cores)
+├── js/metadata.js       leitura de DNG/TIFF, configurações do Lightroom (XMP) e EXIF
+├── js/decode.js         leitura de fotos para canvas, com orientação EXIF
+├── js/zip.js            geração de ZIP sem dependências
+├── js/batch.js          tela de edição automática em lote
 ├── tests/               testes em Node
 └── scripts/build-single.js
 ```
@@ -93,6 +129,11 @@ image-editor/
   brilho, contraste, realces e sombras viram uma tabela de 256 valores por canal, e só
   matiz, saturação e vibração são calculados pixel a pixel. Isso mantém a prévia fluida
   em fotos de 12 MP.
+- **Estilo aprendido.** As curvas por canal são ajustadas com regressão isotônica (sempre
+  crescentes). A correção residual de cada cor fica numa grade 25×25×25, resolvida com
+  suavização entre vizinhos e um leve decaimento para zero: cores que não aparecem nas
+  referências recebem só as curvas, sem mudanças inventadas. As bordas da foto pesam
+  menos no aprendizado para a vinheta não contaminar o estilo.
 - **Desfoque em tempo linear.** O desfoque gaussiano usa três passadas de média móvel
   com alfa pré-multiplicado, então o custo não depende do raio e as bordas transparentes
   não escurecem.

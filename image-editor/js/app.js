@@ -220,6 +220,17 @@
   app.toast = function (msg, kind) { ui.toast(msg, kind); };
   app.refreshLayers = function () { ui.refreshLayers(); };
 
+  // Abre um documento novo a partir de canvases (usado pela edição em lote).
+  app.openLayers = function (name, layers, label) {
+    var top = layers[layers.length - 1].canvas;
+    var doc = new R.Doc(top.width, top.height, name);
+    layers.forEach(function (l) {
+      doc.addLayer(new R.Layer({ name: l.name, canvas: l.canvas, visible: l.visible !== false }));
+    });
+    setDocument(doc, label || 'Abrir imagem');
+    app.pristine = false;
+  };
+
   app.editableLayer = function () {
     var l = app.doc && app.doc.active;
     if (!l) { app.toast('Crie ou selecione uma camada primeiro.'); return null; }
@@ -467,6 +478,9 @@
   }
 
   // Nomes de arquivo só com ASCII: alguns navegadores trocam nomes acentuados por "download".
+  app.saveFile = function (blob, filename) { return saveFile(blob, filename); };
+  app.safeName = function (name) { return safeName(name); };
+
   function safeName(name) {
     return String(name || 'imagem')
       .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -520,28 +534,65 @@
   }
 
   function isImageFile(f) {
-    return /^image\//.test(f.type) || /\.(png|jpe?g|webp|gif|bmp|svg|avif|ico)$/i.test(f.name);
+    return /^image\//.test(f.type) || /\.(png|jpe?g|webp|gif|bmp|svg|avif|ico|dng)$/i.test(f.name);
   }
 
   function openFiles(files, asLayer) {
     var f = files && files[0];
     if (!f) return;
     if (isProjectFile(f)) { loadProject(f); return; }
-    if (!isImageFile(f)) { app.toast('Formato não suportado: ' + f.name + '. Use PNG, JPEG, WebP, GIF ou um projeto .json.', 'error'); return; }
+    if (R.decode.isDngFile(f)) { openDng(f, asLayer); return; }
+    if (!isImageFile(f)) { app.toast('Formato não suportado: ' + f.name + '. Use PNG, JPEG, WebP, GIF, DNG ou um projeto .json.', 'error'); return; }
     ui.setBusy(true, 'Abrindo…');
     loadImageFile(f).then(function (c) {
       ui.setBusy(false);
       if (c.wasReduced) app.toast('A imagem era grande demais para este navegador e foi reduzida para ' + c.width + ' × ' + c.height + ' px.');
-      if (asLayer) placeCanvas(c, baseName(f.name));
-      else {
-        var doc = new R.Doc(c.width, c.height, baseName(f.name));
-        doc.addLayer(new R.Layer({ name: 'Fundo', canvas: c }));
-        setDocument(doc, 'Abrir imagem');
-      }
+      finishOpen(c, baseName(f.name), asLayer);
     }, function (err) {
       ui.setBusy(false);
       app.toast('Não foi possível abrir “' + f.name + '”: ' + err.message + '.', 'error');
     });
+  }
+
+  function finishOpen(c, name, asLayer) {
+    if (asLayer) { placeCanvas(c, name); return; }
+    var doc = new R.Doc(c.width, c.height, name);
+    doc.addLayer(new R.Layer({ name: 'Fundo', canvas: c }));
+    setDocument(doc, 'Abrir imagem');
+  }
+
+  // DNG exportado do Lightroom: oferece a foto original ou a versão editada.
+  function openDng(f, asLayer) {
+    ui.setBusy(true, 'Lendo DNG…');
+    var fail = function (err) {
+      ui.setBusy(false);
+      app.toast('Não foi possível abrir “' + f.name + '”: ' + err.message + '.', 'error');
+    };
+    R.decode.loadSource(f).then(function (src) {
+      ui.setBusy(false);
+      var go = function (which) {
+        ui.setBusy(true, 'Abrindo…');
+        R.decode.decodeSource(src, which, 0).then(function (c) {
+          ui.setBusy(false);
+          finishOpen(c, baseName(f.name) + (which === 'edited' ? ' (Lightroom)' : ''), asLayer);
+          if (src.usesPreview) app.toast('Este DNG guarda o RAW da câmera, que o navegador não lê; abrimos a prévia embutida.');
+        }, fail);
+      };
+      if (src.hasOriginal && src.hasEdited) {
+        var summary = src.summary.slice(0, 6).map(function (x) { return x.label + ' ' + x.value; }).join(' · ');
+        ui.dialog({
+          title: 'Abrir DNG do Lightroom',
+          content: h('div', { class: 'form-grid' },
+            h('p', { class: 'about', text: 'Este arquivo traz a foto original da câmera e a versão editada no Lightroom. Qual você quer abrir?' }),
+            summary ? h('p', { class: 'form-note', text: 'Edição: ' + summary + '.' }) : null),
+          actions: [
+            { label: 'Cancelar', cancel: true },
+            { label: 'Versão do Lightroom', run: function () { go('edited'); } },
+            { label: 'Original', primary: true, run: function () { go('original'); } }
+          ]
+        });
+      } else go(src.hasOriginal ? 'original' : 'edited');
+    }, fail);
   }
 
   function placeCanvas(c, name, at) {
@@ -1034,7 +1085,7 @@
       content: h('div', { class: 'about' },
         h('p', { text: 'Editor de imagens com camadas, ajustes de luz e cor, filtros, seleção, corte, texto e histórico completo.' }),
         h('p', { text: 'Tudo é processado no seu navegador. Suas imagens não são enviadas para nenhum servidor.' }),
-        h('p', { class: 'form-note', text: 'Formatos: abre PNG, JPEG, WebP, GIF, BMP, SVG e projetos .retoque.json; exporta PNG, JPEG e WebP.' })),
+        h('p', { class: 'form-note', text: 'Formatos: abre PNG, JPEG, WebP, GIF, BMP, SVG, DNG do Lightroom e projetos .retoque.json; exporta PNG, JPEG e WebP, e lotes em .zip.' })),
       actions: [{ label: 'Fechar', primary: true }]
     });
   }
@@ -1194,6 +1245,7 @@
     cmd('file.new', 'Novo documento…', newDocumentDialog, { combos: ['mod+alt+n'] });
     cmd('file.open', 'Abrir…', function () { $('file-input').click(); }, { combos: ['mod+o'] });
     cmd('file.place', 'Inserir imagem como camada…', function () { $('place-input').click(); });
+    cmd('file.batch', 'Edição automática em lote…', function () { R.batch.open(); }, { passive: true, combos: ['mod+shift+b'] });
     cmd('file.save', 'Salvar projeto (.json)', saveProject, { combos: ['mod+s'] });
     cmd('file.export', 'Exportar imagem…', exportDialog, { combos: ['mod+shift+s', 'mod+shift+e'] });
 
@@ -1313,6 +1365,17 @@
     }, { combos: ['mod+e'], enabled: function () { return hasLayer() && app.doc.indexOf(app.doc.active) > 0; } });
 
     // Filtros
+    cmd('filter.style', 'Aplicar estilo aprendido…', function () {
+      var cur = R.batch.currentStyle();
+      if (!cur) {
+        app.toast('Ainda não há estilo aprendido. Abra Arquivo › Edição automática em lote e adicione fotos editadas no Lightroom.');
+        return;
+      }
+      filterDialog('Aplicar estilo aprendido', 'Estilo aprendido', [
+        { key: 'strength', label: 'Intensidade', min: 0, max: 150, step: 5, value: 100, unit: '%' },
+        { key: 'ev', label: 'Exposição', min: -2, max: 2, step: 0.1, value: 0, unit: 'EV' }
+      ], function (img, v) { R.style.applyStyle(img, cur.style, { strength: v.strength / 100, exposure: v.ev }); });
+    }, { enabled: hasLayer });
     cmd('filter.blur', 'Desfoque gaussiano…', function () {
       filterDialog('Desfoque gaussiano', 'Desfoque gaussiano', [{ key: 'radius', label: 'Raio', min: 0.5, max: 100, step: 0.5, value: 4, unit: 'px' }],
         function (img, v) { ops.gaussianBlur(img, v.radius); });
@@ -1383,11 +1446,11 @@
   }
 
   var MENUS = [
-    { label: 'Arquivo', items: ['file.new', 'file.open', 'file.place', '-', 'file.save', 'file.export'] },
+    { label: 'Arquivo', items: ['file.new', 'file.open', 'file.place', '-', 'file.batch', '-', 'file.save', 'file.export'] },
     { label: 'Editar', items: ['edit.undo', 'edit.redo', '-', 'edit.cut', 'edit.copy', 'edit.copyMerged', 'edit.paste', '-', 'edit.clear', 'edit.fill', '-', 'select.all', 'select.none'] },
     { label: 'Imagem', items: ['image.size', 'image.canvasSize', 'image.cropToSelection', '-', 'image.rotateCW', 'image.rotateCCW', 'image.rotate180', 'image.flipH', 'image.flipV', '-', 'image.autoContrast', 'image.autoTone', '-', 'image.flatten'] },
     { label: 'Camada', items: ['layer.new', 'layer.duplicate', 'layer.delete', '-', 'layer.transform', 'layer.flipH', 'layer.flipV', 'layer.center', 'layer.rasterize', '-', 'layer.up', 'layer.down', 'layer.mergeDown'] },
-    { label: 'Filtros', items: ['filter.blur', 'filter.sharpen', 'filter.noise', 'filter.pixelate', 'filter.vignette', '-', 'filter.grayscale', 'filter.sepia', 'filter.invert', 'filter.posterize', 'filter.threshold', 'filter.edges'] },
+    { label: 'Filtros', items: ['filter.style', '-', 'filter.blur', 'filter.sharpen', 'filter.noise', 'filter.pixelate', 'filter.vignette', '-', 'filter.grayscale', 'filter.sepia', 'filter.invert', 'filter.posterize', 'filter.threshold', 'filter.edges'] },
     { label: 'Exibir', items: ['view.zoomIn', 'view.zoomOut', 'view.fit', 'view.actual', '-', 'view.theme', 'view.panels'] },
     { label: 'Ajuda', items: ['help.shortcuts', 'help.about'] }
   ];
@@ -1548,6 +1611,10 @@
 
   function bindKeyboard() {
     document.addEventListener('keydown', function (e) {
+      if (R.batch.isOpen()) {
+        if (e.key === 'Escape' && !ui.hasDialog()) R.batch.close();
+        return;
+      }
       if (e.target === app.textArea) {
         if (e.key === 'Escape') { e.preventDefault(); textTool.cancel(); }
         else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); textTool.commit(); }
@@ -1653,7 +1720,7 @@
 
   function bindTransfer() {
     document.addEventListener('paste', function (e) {
-      if (isTyping(e.target) || ui.hasDialog()) return;
+      if (isTyping(e.target) || ui.hasDialog() || R.batch.isOpen()) return;
       var items = (e.clipboardData && e.clipboardData.items) || [];
       var file = null;
       for (var i = 0; i < items.length; i++) {
@@ -1677,7 +1744,7 @@
       return !!types && Array.prototype.indexOf.call(types, 'Files') >= 0;
     }
     window.addEventListener('dragenter', function (e) {
-      if (!hasFiles(e)) return;
+      if (!hasFiles(e) || R.batch.isOpen()) return;
       depth++;
       hint.textContent = app.pristine ? 'Solte para abrir a imagem' : 'Solte para inserir como nova camada';
       hint.hidden = false;
@@ -1689,7 +1756,7 @@
       if (!depth) hint.hidden = true;
     });
     window.addEventListener('drop', function (e) {
-      if (!hasFiles(e)) return;
+      if (!hasFiles(e) || R.batch.isOpen()) return;
       e.preventDefault();
       depth = 0;
       hint.hidden = true;
@@ -1726,6 +1793,7 @@
     zi.addEventListener('focus', function () { zi.select(); });
     $('panel-toggle').addEventListener('click', togglePanels);
     $('btn-open').addEventListener('click', function () { app.run('file.open'); });
+    $('btn-batch').addEventListener('click', function () { R.batch.open(); });
     $('btn-export').addEventListener('click', function () { app.run('file.export'); });
     $('panels-close').addEventListener('click', togglePanels);
     $('dialog-root').addEventListener('pointerdown', function (e) {
