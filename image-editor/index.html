@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Retoque</title>
+<meta name="description" content="Editor de imagens no navegador com camadas, ajustes, filtros, texto e histórico.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600..800&family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="css/editor.css">
+</head>
+<body>
+<div class="app" id="app">
+  <header class="menubar">
+    <div class="brand" aria-label="Retoque"><span class="brand-mark" aria-hidden="true"></span><span class="brand-name">Retoque</span></div>
+    <nav class="menus" id="menus" aria-label="Menu principal"></nav>
+    <div class="doc-title" id="doc-title"></div>
+    <div class="header-actions">
+      <button class="btn btn-small" id="btn-open" type="button">Abrir imagem</button>
+      <button class="btn btn-small btn-primary" id="btn-export" type="button">Exportar</button>
+      <button class="mini-btn panel-toggle" id="panel-toggle" type="button" aria-label="Mostrar painéis" aria-expanded="false" aria-controls="panels">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M14.5 4.5v15"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="optionsbar" id="optionsbar" role="toolbar" aria-label="Opções da ferramenta"></div>
+
+  <div class="workspace">
+    <nav class="toolbar" aria-label="Ferramentas">
+      <div class="tools" id="tools"></div>
+      <div class="swatches" id="swatches"></div>
+    </nav>
+
+    <main class="viewport" id="viewport">
+      <canvas id="view" aria-label="Imagem em edição"></canvas>
+      <textarea id="text-editor" class="text-editor" hidden spellcheck="false" aria-label="Texto"></textarea>
+      <div class="busy" id="busy" hidden role="status">Processando…</div>
+      <div class="drop-hint" id="drop-hint" hidden>Solte para abrir a imagem</div>
+    </main>
+
+    <aside class="panels" id="panels" aria-label="Painéis">
+      <div class="panels-mobile-head">
+        <strong>Painéis</strong>
+        <button class="mini-btn" id="panels-close" type="button" aria-label="Fechar painéis">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+
+      <section class="panel panel-histogram" aria-labelledby="h-histogram">
+        <header class="panel-head"><h2 id="h-histogram">Histograma</h2><span class="panel-aside">RGB · luminância</span></header>
+        <canvas id="histogram" class="histogram" aria-label="Histograma da imagem"></canvas>
+        <div class="histogram-scale" aria-hidden="true"><span>Sombras</span><span>Meios-tons</span><span>Realces</span></div>
+      </section>
+
+      <section class="panel panel-adjust" id="panel-adjust" aria-labelledby="h-adjust">
+        <header class="panel-head">
+          <h2 id="h-adjust">Ajustes</h2>
+          <button class="mini-btn collapse-btn" id="adjust-toggle" type="button" aria-expanded="true" aria-controls="adjust-collapsible" aria-label="Recolher ajustes">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+        </header>
+        <div class="adjust-collapsible" id="adjust-collapsible">
+          <p class="adjust-target" id="adjust-target"></p>
+          <div class="adjust-body" id="adjust-body"></div>
+          <div class="adjust-actions">
+            <button class="btn btn-small" id="adjust-reset" type="button" disabled>Descartar</button>
+            <button class="btn btn-small btn-primary" id="adjust-apply" type="button" disabled>Aplicar ajustes</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel panel-layers" aria-labelledby="h-layers">
+        <header class="panel-head"><h2 id="h-layers">Camadas</h2></header>
+        <div class="layer-props">
+          <select id="layer-blend" aria-label="Modo de mesclagem"></select>
+          <label class="layer-opacity" for="layer-opacity">
+            <span>Opacidade</span>
+            <input type="range" id="layer-opacity" min="0" max="100" step="1" value="100">
+            <output id="layer-opacity-out" for="layer-opacity">100%</output>
+          </label>
+        </div>
+        <ul class="layer-list" id="layer-list" role="listbox" aria-label="Lista de camadas"></ul>
+        <div class="panel-foot" id="layer-actions"></div>
+      </section>
+
+      <section class="panel panel-history" aria-labelledby="h-history">
+        <header class="panel-head"><h2 id="h-history">Histórico</h2></header>
+        <ol class="history-list" id="history-list"></ol>
+      </section>
+    </aside>
+  </div>
+
+  <footer class="statusbar">
+    <div class="zoom-group">
+      <button class="mini-btn" id="zoom-out" type="button" aria-label="Afastar" title="Afastar (Ctrl −)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg>
+      </button>
+      <input type="text" id="zoom-input" class="zoom-input" value="100%" aria-label="Nível de zoom" inputmode="decimal">
+      <button class="mini-btn" id="zoom-in" type="button" aria-label="Aproximar" title="Aproximar (Ctrl +)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+      <button class="mini-btn" id="zoom-fit" type="button" aria-label="Ajustar à tela" title="Ajustar à tela (Ctrl 0)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+      </button>
+    </div>
+    <span class="status-item" id="status-size"></span>
+    <span class="status-item status-pos" id="status-pos"></span>
+    <span class="status-item" id="status-sel" hidden></span>
+    <span class="status-hint" id="status-hint"></span>
+  </footer>
+</div>
+
+<div class="dialog-root" id="dialog-root" hidden></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<input type="file" id="file-input" accept="image/*,.json,application/json" hidden>
+<input type="file" id="place-input" accept="image/*" hidden>
+
+<script src="js/imageops.js"></script>
+<script src="js/history.js"></script>
+<script src="js/document.js"></script>
+<script src="js/sample.js"></script>
+<script src="js/view.js"></script>
+<script src="js/tools.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

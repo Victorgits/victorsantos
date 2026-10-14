@@ -1,0 +1,12 @@
+{
+  "name": "retoque",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Editor de imagens no navegador com camadas, ajustes, filtros, texto e histórico.",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "build": "node scripts/build-single.js",
+    "start": "python3 -m http.server 8080"
+  }
+}
